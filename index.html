@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Fruit Ninja Web</title>
+
+<style>
+/* ===== RESET ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: radial-gradient(#1b2735, #090a0f);
+  font-family: Arial, sans-serif;
+}
+
+/* ===== CANVAS ===== */
+canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* ===== HUD ===== */
+#score {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 5;
+  padding: 10px 18px;
+  color: white;
+  font-size: 20px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(6px);
+}
+
+/* ===== MENU & GAME OVER ===== */
+#startMenu,
+#gameOver {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  background: rgba(0,0,0,0.85);
+}
+
+#gameOver { display: none; }
+
+h1 {
+  font-size: 48px;
+  margin-bottom: 20px;
+  letter-spacing: 3px;
+}
+
+button {
+  padding: 14px 36px;
+  font-size: 18px;
+  border: none;
+  border-radius: 30px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #ff416c, #ff4b2b);
+  color: white;
+}
+</style>
+</head>
+
+<body>
+
+<div id="score">Score: 0</div>
+
+<div id="startMenu">
+  <h1>FRUIT SLASH</h1>
+  <button onclick="startGame()">START</button>
+</div>
+
+<div id="gameOver">
+  <h1>GAME OVER</h1>
+  <button onclick="startGame()">RESTART</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+/* ======================
+   SETUP
+====================== */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+canvas.width = innerWidth;
+canvas.height = innerHeight;
+
+let gameState = "menu"; // menu | playing | gameover
+let spawnInterval = null;
+
+let fruits = [];
+let pieces = [];
+let juices = [];
+let slashes = [];
+let score = 0;
+
+/* ======================
+   IMAGE
+====================== */
+const fruitImg = new Image();
+fruitImg.src = "fruit.png";
+
+/* ======================
+   CLASSES
+====================== */
+class Fruit {
+  constructor() {
+    this.x = Math.random() * (canvas.width - 64);
+    this.y = canvas.height + 80;
+    this.size = 64;
+    this.vx = (Math.random() - 0.5) * 2;
+    this.vy = -(Math.random() * 8 + 12);
+    this.gravity = 0.35;
+    this.rotation = 0;
+    this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += this.gravity;
+    this.rotation += this.rotationSpeed;
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x + 32, this.y + 32);
+    ctx.rotate(this.rotation);
+    ctx.drawImage(fruitImg, -32, -32, 64, 64);
+    ctx.restore();
+  }
+}
+
+class FruitPiece {
+  constructor(x, y, side) {
+    this.x = x;
+    this.y = y;
+    this.size = 64;
+    this.vx = side === "left" ? -4 : 4;
+    this.vy = -(Math.random() * 4 + 6);
+    this.gravity = 0.4;
+    this.rotation = 0;
+    this.rotationSpeed = side === "left" ? -0.15 : 0.15;
+    this.side = side;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += this.gravity;
+    this.rotation += this.rotationSpeed;
+  }
+  draw() {
+    ctx.save();
+    ctx.translate(this.x + 32, this.y + 32);
+    ctx.rotate(this.rotation);
+    ctx.drawImage(
+      fruitImg,
+      this.side === "left" ? 0 : 32, 0, 32, 64,
+      -16, -32, 32, 64
+    );
+    ctx.restore();
+  }
+}
+
+class Juice {
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+    this.vx = (Math.random() - 0.5) * 6;
+    this.vy = (Math.random() - 1.5) * 6;
+    this.life = 30;
+    this.r = Math.random() * 3 + 2;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.vy += 0.3;
+    this.life--;
+  }
+  draw() {
+    ctx.fillStyle = `rgba(255,50,50,${this.life/30})`;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+/* ======================
+   GAME LOGIC
+====================== */
+function spawnFruit() {
+  if (gameState === "playing") fruits.push(new Fruit());
+}
+
+function slashAt(x, y) {
+  fruits = fruits.filter(f => {
+    const cx = f.x + 32;
+    const cy = f.y + 32;
+    if (Math.hypot(cx - x, cy - y) < 32) {
+      pieces.push(new FruitPiece(f.x, f.y, "left"));
+      pieces.push(new FruitPiece(f.x, f.y, "right"));
+      for (let i = 0; i < 12; i++) juices.push(new Juice(cx, cy));
+      score++;
+      document.getElementById("score").innerText = "Score: " + score;
+      return false;
+    }
+    return true;
+  });
+}
+
+canvas.addEventListener("mousemove", e => {
+  if (gameState === "playing") slashAt(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("touchmove", e => {
+  if (gameState === "playing") {
+    const t = e.touches[0];
+    slashAt(t.clientX, t.clientY);
+  }
+});
+
+/* ======================
+   LOOP
+====================== */
+function update() {
+  if (gameState !== "playing") return;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  fruits.forEach(f => { f.update(); f.draw(); });
+  pieces.forEach(p => { p.update(); p.draw(); });
+  juices = juices.filter(j => j.life > 0);
+  juices.forEach(j => { j.update(); j.draw(); });
+
+  requestAnimationFrame(update);
+}
+
+/* ======================
+   STATE CONTROL
+====================== */
+function startGame() {
+  gameState = "playing";
+  fruits = [];
+  pieces = [];
+  juices = [];
+  score = 0;
+  document.getElementById("score").innerText = "Score: 0";
+
+  document.getElementById("startMenu").style.display = "none";
+  document.getElementById("gameOver").style.display = "none";
+
+  if (spawnInterval) clearInterval(spawnInterval);
+  spawnInterval = setInterval(spawnFruit, 900);
+
+  update();
+}
+</script>
+
+</body>
+</html>
